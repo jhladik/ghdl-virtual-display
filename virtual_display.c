@@ -32,6 +32,7 @@ void sim_init(uint32_t width, uint32_t height) {
     w = XCreateSimpleWindow(d, RootWindow(d, s), 0, 0, xres, yres, 0, BlackPixel(d, s), BlackPixel(d, s));
     XSelectInput(d, w, ExposureMask | KeyPressMask);
     XMapWindow(d, w);
+    XStoreName(d, w, "Virtual Display");
     XFlush(d);
     
     gc = DefaultGC(d, s);

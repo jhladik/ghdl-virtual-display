@@ -5,8 +5,17 @@ use ieee.numeric_std.all;
 
 entity virtual_display is
     generic (
-        G_WIDTH  : natural := 640;
-        G_HEIGHT : natural := 480
+        G_WIDTH     : natural := 640;
+        G_HEIGHT    : natural := 480
+    );
+    port (
+        i_clk : in std_logic;
+        i_rst : in std_logic;
+        i_val : in std_logic;
+        i_eol : in std_logic;
+        i_eof : in std_logic;
+        i_rgb : in std_logic_vector(23 downto 0);
+        i_run : in boolean
     );
 end virtual_display;
 
@@ -19,7 +28,7 @@ architecture arch of virtual_display is
         natural range 0 to G_WIDTH-1
     ) of integer;
     
-    shared variable screen: screen_t;
+    shared variable v_screen: screen_t;
     
     
     procedure sim_init (
@@ -54,60 +63,55 @@ architecture arch of virtual_display is
     attribute foreign of sim_cleanup : procedure is "VHPIDIRECT sim_cleanup";
     
     
-    function RGB_to_integer (
-        rgb : std_logic_vector(2 downto 0)
-    ) return integer is
-        variable raw24: std_logic_vector(31 downto 0);
-    begin
-        raw24 := (
-             7 downto  0 => rgb(0),
-            15 downto  8 => rgb(1),
-            23 downto 16 => rgb(2),
-               others    => '0'
-        );
-        return to_integer(unsigned(raw24));
-    end function;
-   
-   
-    constant c_width  : integer := screen'length(2);
-    constant c_height : integer := screen'length(1);
+    constant c_width  : integer := v_screen'length(2);
+    constant c_height : integer := v_screen'length(1);
     
+    signal s_col_reg : natural;
+    signal s_row_reg : natural;
+    signal s_frm_reg : natural;
     
 begin
     
     
+    process (i_clk, i_rst)
+    begin
+        if (i_rst = '1') then
+            s_col_reg <= 0;
+            s_row_reg <= 0;
+            s_frm_reg <= 0;
+        elsif (rising_edge(i_clk)) then
+            assert s_col_reg < c_width report "Unexpected value: s_col_reg = " &
+                integer'image(s_col_reg) & " should never be equal to or exceed c_width = " &
+                integer'image(c_width);
+            assert s_row_reg < c_height report "Unexpected value: s_row_reg = " &
+                integer'image(s_row_reg) & " should never be equal to or exceed c_height = " &
+                integer'image(c_height);
+            if (i_val = '1') then
+                s_col_reg <= s_col_reg + 1;
+                v_screen(s_row_reg, s_col_reg) := to_integer(unsigned(i_rgb));
+                if (i_eol = '1') then
+                    s_col_reg <= 0;
+                    s_row_reg <= s_row_reg + 1;
+                end if;
+                if (i_eof = '1') then
+                    s_row_reg <= 0;
+                    s_frm_reg <= s_frm_reg + 1;
+                    save_screenshot(
+                        v_screen,
+                        c_width,
+                        c_height,
+                        s_frm_reg
+                    );
+                end if;
+            end if;
+        end if;
+    end process;
+    
     process
-        variable h, i, j, d_x, d_y: integer;
-        constant w : natural := 100;
     begin
         sim_init(G_WIDTH, G_HEIGHT);
-        
-        for h in 0 to 15 loop
-            d_x := h * (c_width-w-1)/15;
-            d_y := h * (c_height-w-1)/15;
-            
-            for j in 0 to c_height-1 loop
-                for i in 0 to c_width-1 loop
-                    screen(j,i) := 16#FFFF00#;
-                end loop;
-            end loop;
-            
-            for j in d_y to d_y+w loop
-                for i in d_x to d_x+w loop
-                    screen( j, i ) := 16#00FFFF#;
-                end loop;
-            end loop;
-            
-            save_screenshot(
-                screen,
-                c_width,
-                c_height,
-                h
-            );
-        end loop;
-        
+        wait until (i_run = false);
         sim_cleanup;
-        wait;
     end process;
     
     
